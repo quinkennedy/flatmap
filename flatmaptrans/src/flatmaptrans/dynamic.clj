@@ -81,44 +81,99 @@
                            rotated 
                            flatpath)]
     (placementFn polars destinations)))
-;    (loop [minI 0 i 1]
-;      ;if i is in range
-;      (if (< i (count path))
-;        ;then
-;        ;if the current min is still smaller
-;        (if (< (first (get polars minI)) (first (get polars i)))
-;          (recur minI (inc i))
-;          (recur i (inc i)))
-;        ;else
-;        ;translate point from path to flatpath based on closest point
-;        (get destinations minI)))))
-;        ;(c/moveFromTo (apply c/PtoC (get rotated minI)) 
-;                      ;[0 0] 
-;                      ;(get flatpath minI))))))
 
 (defn trackByMin [polars destinations]
-  (second (first (sort-by #(first (first %)) (map vector polars destinations)))))
+  (second (first (sort-by #(first (first %)) 
+                          (map vector polars destinations)))))
+
+(defn rowToCol [v]
+  (apply mapv vector v))
 
 (defn trackByStraightAvg [polars destinations]
   (mapv #(/ % (count destinations)) 
         (mapv #(apply + %) 
               (apply mapv vector destinations))))
 
+(defn trackByTwoAvg [polars destinations]
+  (mapv #(/ % 2)
+        (mapv #(apply + %)
+              ;switch from [[x y] [x y]] to [[x x] [y y]]
+              (apply mapv vector 
+                ;discard polar data
+                (mapv second
+                      ;take closest two points
+                      (take 2 
+                            ;sort by distance to reference point
+                            (sort-by #(first (first %))
+                                     (map vector polars destinations))))))))
+
+(defn trackByDistanceAvg [polars destinations]
+  ;divide result by combined distances
+  (mapv #(/ % (apply + (mapv first polars)))
+    ;add all inflated destination points together
+    (mapv #(apply + %)
+          (apply mapv vector 
+            ;multiply each destination vertex by distance to its reference point
+            (mapv (fn [polar destination]
+                    (mapv #(* % (first polar)) destination))
+                  polars
+                  destinations)))))
+
+(defn trackByInvDistanceAvg [polars destinations]
+  ;divide result by combined distances
+  (mapv #(/ % (apply + (mapv (fn [polar] (/ 1 (first polar))) polars)))
+    ;add all inflated destination points together
+    (mapv #(apply + %)
+          (apply mapv vector 
+            ;multiply each destination vertex by distance to its reference point
+            (mapv (fn [polar destination]
+                    (mapv #(* % (/ 1 (first polar))) destination))
+                  polars
+                  destinations)))))
+
+(defn trackByInvSqDistanceAvg [polars destinations]
+  ;divide result by combined distances
+  (mapv #(/ % (apply + (mapv (fn [polar] (/ 1 (Math/pow (first polar) 2))) polars)))
+    ;add all inflated destination points together
+    (mapv #(apply + %)
+          (apply mapv vector 
+            ;multiply each destination vertex by distance to its reference point
+            (mapv (fn [polar destination]
+                    (mapv #(* % (/ 1 (Math/pow (first polar) 2))) destination))
+                  polars
+                  destinations)))))
+
 (defn draw-state [state]
   ; Clear the sketch by filling it with light-grey color.
   (q/background 240)
-  (q/stroke 100 255 255)
+  (q/stroke 50 255 255)
   (c/drawFeatures state 
                   (:geo state) 
                   #(c/positionPoint %))
-  (q/stroke 0 255 255)
+  (q/stroke 0 255 155)
   (c/drawFeatures state 
                   (:geo state) 
                   #(c/positionPoint 
                       (trackPath  % 
                                   path
                                   flatpath
-                                  trackByStraightAvg)))
+                                  trackByInvSqDistanceAvg)))
+  (q/stroke 100 255 255)
+  (c/drawFeatures state 
+                  (:geo state) 
+                  #(c/positionPoint 
+                      (trackPath  % 
+                                  path
+                                  flatpath
+                                  trackByMin)))
+  (q/stroke 150 255 155)
+  (c/drawFeatures state 
+                  (:geo state) 
+                  #(c/positionPoint 
+                      (trackPath  % 
+                                  path
+                                  flatpath
+                                  trackByTwoAvg)))
   (q/stroke 0 0 0)
   (c/drawPath path #(c/positionPoint %))
   (c/drawPath flatpath #(c/positionPoint %)))
