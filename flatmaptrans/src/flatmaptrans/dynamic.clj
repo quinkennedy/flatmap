@@ -15,6 +15,21 @@
 
 (def path [[91.63 22.57] [91.58 22.615] [91.5 22.7] [91.45 22.73] [91.4 22.74] [91.35 22.74] [91.3 22.73] [91.28 22.7] [91.28 22.65]])
 
+;extend the path with a "-1" point in-line with the first two points
+; and a "+1" point in-line with the last two points
+(defn extendPath [path]
+  (conj (vec (conj (apply list path) 
+                   (mapv + (first path) 
+                           (mapv - (first path) 
+                                   (second path))))) 
+        (mapv + (last path) 
+                (mapv - (last path) 
+                        (second (reverse path))))))
+
+(def extendedPath (extendPath path))
+
+(q/debug extendedPath)
+
 (defn flattenPath [path]
   (loop [flat [(first path)] i 1]
     (if (< i (count path))
@@ -28,6 +43,8 @@
       flat)))
 
 (def flatpath (flattenPath path))
+
+(def flatExPath (flattenPath extendedPath))
 
 (defn getPathTangents [path]
   (loop [i 0 tangents []]
@@ -61,6 +78,8 @@
 
 (def pathTangents (getPathTangents path))
 
+(def pathExTan (getPathTangents extendedPath))
+
 (defn update-state [state]
   ; Update sketch state by changing circle color and position.
   {:geo (:geo state)})
@@ -80,21 +99,21 @@
                                            flatpath)) 
                            rotated 
                            flatpath)]
-    (placementFn polars destinations)))
+    (placementFn polars destinations path point)))
 
-(defn trackByMin [polars destinations]
+(defn trackByMin [polars destinations path originalPoint]
   (second (first (sort-by #(first (first %)) 
                           (map vector polars destinations)))))
 
 (defn rowToCol [v]
   (apply mapv vector v))
 
-(defn trackByStraightAvg [polars destinations]
+(defn trackByStraightAvg [polars destinations path originalPoint]
   (mapv #(/ % (count destinations)) 
         (mapv #(apply + %) 
               (apply mapv vector destinations))))
 
-(defn trackByTwoAvg [polars destinations]
+(defn trackByTwoAvg [polars destinations path originalPoint]
   (mapv #(/ % 2)
         (mapv #(apply + %)
               ;switch from [[x y] [x y]] to [[x x] [y y]]
@@ -107,7 +126,61 @@
                             (sort-by #(first (first %))
                                      (map vector polars destinations))))))))
 
-(defn trackByDistanceAvg [polars destinations]
+(defn trackByTwoTween [polars destinations path originalPoint]
+  (let [exPath (extendPath path)
+        sorted (sort-by #(first (first %))
+                        (map vector polars destinations (range)))
+        minI (last (first sorted))
+        neighborMinI (last (first (filter #(= 1 
+                                              (Math/abs (- (last %) 
+                                                           minI))) 
+                                          (rest sorted))))
+        neighborMinOppositeI (+ minI (- minI neighborMinI))
+        neighborsPolar (apply c/CtoP 
+                              (c/moveFromTo (get path neighborMinI) 
+                                            (get exPath 
+                                                 (inc neighborMinOppositeI))
+                                            [0 0]))
+        polarFromNMOI (apply c/CtoP 
+                             (c/moveFromTo originalPoint 
+                                           (get exPath 
+                                                (inc neighborMinOppositeI))
+                                           [0 0]))
+        distanceToNMOI (Math/abs 
+                         (first 
+                           (c/PtoC (first polarFromNMOI)
+                                   (+ (second polarFromNMOI) 
+                                      (- Math/PI 
+                                         (second neighborsPolar))))))
+        distanceToNeighborsLine (- distanceToNMOI (/ (first neighborsPolar) 2))
+        minsPolar (apply c/CtoP (c/moveFromTo (get path neighborMinI)
+                                              (get path minI)
+                                              [0 0]))
+        distanceToMin (Math/abs
+                        (first
+                          (c/PtoC (first (get polars minI))
+                                  (+ (second (get polars minI))
+                                     (- Math/PI
+                                        (second minsPolar))))))
+        distanceToMinLine (Math/abs (- distanceToMin (/ (first minsPolar) 2)))
+        addedDistance (+ distanceToMinLine distanceToNeighborsLine)]
+    (mapv #(apply + %) 
+          (rowToCol [(mapv #(* (+ (/ (/ distanceToMinLine 
+                                        addedDistance) 
+                                     2)
+                                  0.5) 
+                               %) 
+                           (get destinations minI))
+                     (mapv #(* (/ (/ distanceToNeighborsLine 
+                                     addedDistance)
+                                  2) 
+                               %)
+                           (get destinations neighborMinI))]))
+))
+
+(defn trackByNearestSpline [polars destinations path originalPoint])
+
+(defn trackByDistanceAvg [polars destinations path originalPoint]
   ;divide result by combined distances
   (mapv #(/ % (apply + (mapv first polars)))
     ;add all inflated destination points together
@@ -119,7 +192,7 @@
                   polars
                   destinations)))))
 
-(defn trackByInvDistanceAvg [polars destinations]
+(defn trackByInvDistanceAvg [polars destinations path originalPoint]
   ;divide result by combined distances
   (mapv #(/ % (apply + (mapv (fn [polar] (/ 1 (first polar))) polars)))
     ;add all inflated destination points together
@@ -131,7 +204,7 @@
                   polars
                   destinations)))))
 
-(defn trackByInvSqDistanceAvg [polars destinations]
+(defn trackByInvSqDistanceAvg [polars destinations path originalPoint]
   ;divide result by combined distances
   (mapv #(/ % (apply + (mapv (fn [polar] (/ 1 (Math/pow (first polar) 2))) polars)))
     ;add all inflated destination points together
@@ -146,18 +219,21 @@
 (defn draw-state [state]
   ; Clear the sketch by filling it with light-grey color.
   (q/background 240)
+  ;yellow: raw map
   (q/stroke 50 255 255)
   (c/drawFeatures state 
                   (:geo state) 
                   #(c/positionPoint %))
-  (q/stroke 0 255 155)
-  (c/drawFeatures state 
-                  (:geo state) 
-                  #(c/positionPoint 
-                      (trackPath  % 
-                                  path
-                                  flatpath
-                                  trackByInvSqDistanceAvg)))
+  ;red: wavy, condensed extremities, continuous
+;  (q/stroke 0 255 255)
+;  (c/drawFeatures state 
+;                  (:geo state) 
+;                  #(c/positionPoint 
+;                      (trackPath  % 
+;                                  path
+;                                  flatpath
+;                                  trackByInvSqDistanceAvg)))
+  ;green: breaks between points
   (q/stroke 100 255 255)
   (c/drawFeatures state 
                   (:geo state) 
@@ -166,14 +242,24 @@
                                   path
                                   flatpath
                                   trackByMin)))
-  (q/stroke 150 255 155)
+  ;blue: breaks at 1/4 and 3/4 between points
+;  (q/stroke 150 255 155)
+;  (c/drawFeatures state 
+;                  (:geo state) 
+;                  #(c/positionPoint 
+;                      (trackPath  % 
+;                                  path
+;                                  flatpath
+;                                  trackByTwoAvg)))
+  ;dark red: pretty good, before first/after last gets weird
+  (q/stroke 250 255 155)
   (c/drawFeatures state 
                   (:geo state) 
                   #(c/positionPoint 
                       (trackPath  % 
                                   path
                                   flatpath
-                                  trackByTwoAvg)))
+                                  trackByTwoTween)))
   (q/stroke 0 0 0)
   (c/drawPath path #(c/positionPoint %))
   (c/drawPath flatpath #(c/positionPoint %)))
