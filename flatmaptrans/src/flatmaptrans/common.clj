@@ -79,7 +79,7 @@
 		xScale (/ 10000 divisor)
 		yScale (- 0 xScale)
         source [91.64 22.57]
-        destination [(q/width) (/ (q/height) 2)]]
+        destination [(* (q/width) (/ 3 4)) (/ (q/height) 2)]]
     (mapv + (mapv * (mapv - point source) [xScale yScale]) destination)))
 
 (defn moveFromTo [point from to]
@@ -123,5 +123,6 @@
   (loop [i 0]
     (if (< i (count path))
       (let [point (get path i)]
-        (drawPoint point func)
+        ;(drawPoint point func)
+        (apply q/ellipse (conj (func point) 5 5))
         (recur (inc i))))))

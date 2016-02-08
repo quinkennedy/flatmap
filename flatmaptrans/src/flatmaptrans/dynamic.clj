@@ -11,7 +11,7 @@
   (q/color-mode :hsb)
   ; setup function returns initial state. It contains
   ; circle color and position.
-  {:geo (json/read (io/reader "/media/quin/data/docs/me/flatmap/export.geojson"))})
+  {:geo (json/read (io/reader "/media/quin/data1/docs/me/flatmap/export.geojson"))})
 
 (def path [[91.63 22.57] [91.58 22.615] [91.5 22.7] [91.45 22.73] [91.4 22.74] [91.35 22.74] [91.3 22.73] [91.28 22.7] [91.28 22.65]])
 
@@ -152,7 +152,7 @@
                                    (+ (second polarFromNMOI) 
                                       (- Math/PI 
                                          (second neighborsPolar))))))
-        distanceToNeighborsLine (- distanceToNMOI (/ (first neighborsPolar) 2))
+        distanceToNeighborsLine (Math/abs (- distanceToNMOI (/ (first neighborsPolar) 2)))
         minsPolar (apply c/CtoP (c/moveFromTo (get path neighborMinI)
                                               (get path minI)
                                               [0 0]))
@@ -219,8 +219,9 @@
 (defn draw-state [state]
   ; Clear the sketch by filling it with light-grey color.
   (q/background 240)
+  (q/no-fill)
   ;yellow: raw map
-  (q/stroke 50 255 255)
+  (q/stroke 50 255 155)
   (c/drawFeatures state 
                   (:geo state) 
                   #(c/positionPoint %))
@@ -234,14 +235,14 @@
 ;                                  flatpath
 ;                                  trackByInvSqDistanceAvg)))
   ;green: breaks between points
-  (q/stroke 100 255 255)
-  (c/drawFeatures state 
-                  (:geo state) 
-                  #(c/positionPoint 
-                      (trackPath  % 
-                                  path
-                                  flatpath
-                                  trackByMin)))
+;  (q/stroke 100 255 255)
+;  (c/drawFeatures state 
+;                  (:geo state) 
+;                  #(c/positionPoint 
+;                      (trackPath  % 
+;                                  path
+;                                  flatpath
+;                                  trackByMin)))
   ;blue: breaks at 1/4 and 3/4 between points
 ;  (q/stroke 150 255 155)
 ;  (c/drawFeatures state 
@@ -261,5 +262,8 @@
                                   flatpath
                                   trackByTwoTween)))
   (q/stroke 0 0 0)
+  (c/drawPath (extendPath path) #(c/positionPoint %))
+  (c/drawPath (extendPath flatpath) #(c/positionPoint %))
+  (q/fill 100 255 255)
   (c/drawPath path #(c/positionPoint %))
   (c/drawPath flatpath #(c/positionPoint %)))
