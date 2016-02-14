@@ -271,6 +271,20 @@
                          (.next reader) 0))))
         geoms)))
 
+(def minLength 10000)
+
+
+(defn interpolate [p1 p2]
+  ;(concat
+  ; I decided not to include p2 explicitly because
+  ; it will be included at the beginning of the next
+  ; interpolation.
+    (apply map 
+           vector
+           (map range p1 p2 (repeat minLength)))
+  ;  (list p2))
+)
+
 (defn drawGeoms [state]
   (dorun (map (fn drawGeom [coords]
                 ;(q/debug "drawGeom")
@@ -283,7 +297,11 @@
                                        coord)))
                                       ; [(.x coord) 
                                       ;  (.y coord)])))
-                            coords))
+                            (concat (mapcat #(apply interpolate %)
+                                            (map vector 
+                                                 coords 
+                                                 (rest coords)))
+                                    (list (last coords)))))
                 (q/end-shape))
               (:geoms state))))
 ;              (filter (fn visible [coords]
@@ -319,8 +337,11 @@
 (defn update-state [state]
   (merge state 
          {:color (mod (+ (:color state) 0.7) 255)
-          :drawing (and (.hasNext (:reader state))
-                        (:drawing state))
+          :drawing (let [d (and (.hasNext (:reader state))
+                                (:drawing state))]
+                     (if (and (:drawing state) (not d))
+                         (q/debug "done!"))
+                     d)
           :frame (inc (:frame state))
           :geomNum startGeom
           :geoms (take 100 (filteredGeoms (geom-seq (:reader state)) state))
@@ -340,10 +361,11 @@
   (q/with-graphics
     (:mapLayer state)
     (if (= 1 (:frame state))
-      (q/background 240))
+      (q/background 0 0 0 0))
     (q/with-fill 
       [(:color state) 255 255]
       (drawGeoms state)))
+  (q/background 255)
   ; draw map on-screen
   (q/image (:mapLayer state) 0 0)
   ;log frame number
