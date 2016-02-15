@@ -5,13 +5,13 @@
             [clojure.java.io :as io])
   (:import  [org.geotools.data.shapefile ShapefileDataStore]))
 
+(defn loadData [path]
+  (read-string (slurp path)))
+
 (def shapefilepath
      "file:///media/quin/data1/docs/me/flatmap/coastline/land-polygons-split-3857/land_polygons.shp")
 (def defaultZoom ['(-20000000 20000000) '(20000000 -20000000)])
-(def startGeom 0);(* 275 2000))
 (def pathWidth 1000000)
-(def seaPath ['(12676500 2499500.0) '(12596438 2350000.0) '(12516375 2212000.0) '(12459188 2062500.0) '(12402000 1855500.0) '(12367688 1591000.0) '(12321938 1326500.0) '(12241875 1073500.0) '(12127500 820500.0) '(12013125 590500.0) '(11910188 360500.0) '(11795813 130500.0) '(11704312 27000.0) '(11635688 38500.0) '(11578500 61500.0) '(11498438 119000.0) '(11395500 211000.0) '(11258250 314500.0) '(11143875 418000.0) '(10949438 648000.0) '(10743562 958500.0) '(10549125 1326500.0) '(10434750 1591000.0) '(10286062 1970500.0) '(10137375 2212000.0) '(10011562 2315500.0) '(9874312.0 2384500.0) '(9805688.0 2384500.0) '(9759938.0 2373000.0) '(9714188.0 2350000.0) '(9714188.0 2292500.0) '(9702750.0 2200500.0) '(9576938.0 1959000.0) '(9428250.0 1763500.0) '(9279562.0 1533500.0) '(9096562.0 1315000.0) '(8925000.0 1142500.0) '(8890688.0 1119500.0) '(8856375.0 1062000.2) '(8833500.0 1027500.0) '(8810625.0 981500.0) '(8764875.0 889500.0) '(8661938.0 809000.0) '(8559000.0 809000.0) '(8478938.0 843500.0) '(8433188.0 958500.0) '(8444625.0 1085000.0) '(8433188.0 1188500.0) '(8330250.0 1269000.0) '(8124375.0 1487500.0) '(7907062.5 1821000.0) '(7746937.5 2051000.0) '(7586812.5 2384500.0)'(7472437.5 2580000.0) '(7392375.0 2741000.0) '(7323750.0 2856000.0) '(7300875.0 2879000.0) '(7255125.0 2844500.0) '(7117875.0 2706500.0) '(6957750.0 2476500.0) '(6774750.0 2246500.0) '(6603187.5 2051000.0) '(6351562.5 1843999.9) '(6134250.0 1752000.0) '(5916937.5 1683000.0) '(5814000.0 1614000.0) '(5768250.0 1533500.0) '(5791125.0 1430000.0) '(5825437.5 1280500.0) '(5814000.0 1016000.0) '(5733937.5 762999.75) '(5550937.5 464000.0) '(5345062.5 222500.0) '(5104875.0 -42000.0) '(4818937.5 -272000.0) '(4407187.5 -536500.0)])
-
 
 (defn setup []
   (let [shapefile (ShapefileDataStore.
@@ -23,15 +23,19 @@
     ; setup function returns initial state. It contains
     ; circle color and position.
     {:color 0
-     :shapefile shapefile
-     :reader (.getFeatureReader shapefile)
+     ;:shapefile shapefile
+     ;:reader (.getFeatureReader shapefile)
      :zoom defaultZoom
      :zoomtoggle false
      :pathtoggle false
      :drawing true
-     :frame 0
-     :geomNum 0
-     :path seaPath
+     :frame 1
+     :allgeoms (loadData "/media/quin/data1/docs/me/flatmap/geoms.txt")
+     :currgeoms '()
+     :path (loadData "/media/quin/data1/docs/me/flatmap/path.txt")
+     :line (loadData "/media/quin/data1/docs/me/flatmap/line.txt")
+     :hiddenUI false
+     :clickfunc "default"
      :mapLayer (q/create-graphics (q/width) (q/height))}))
 
 (defn trackByTwoTween [state point]
@@ -147,6 +151,9 @@
       (q/debug (str "newPath: " newPath))
       (merge state {:path newPath}))))
 
+(defn saveData [filepath data]
+  (spit filepath (with-out-str (pr data))))
+
 (defn key-typed [state event]
   (case (:raw-key event)
     ; z key toggles zoom
@@ -159,7 +166,28 @@
          (q/debug (str "path: " (not (:pathtoggle state))))
          (merge state {:pathtoggle (not (:pathtoggle state))
                        :frame      0}))
-    ; u key removes last path point
+    ; P key toggles click-to-define-path
+    \P (merge state {:clickfunc (if (= "path" (:clickfunc state))
+                                    "default"
+                                    "path")})
+    ; L key toggles click-to-add-line
+    \L (merge state {:clickfunc (if (= "line" (:clickfunc state))
+                                    "default"
+                                    "line")})
+    ; s key saves zoom/path/line
+    \s (do 
+         (case (:clickfunc state)
+		   "path" (saveData 
+                    "/media/quin/data1/docs/me/flatmap/path.txt" 
+                    (:path state))
+           "line" (saveData
+                    "/media/quin/data1/docs/me/flatmap/line.txt"
+                    (:line state))
+           "default" (saveData
+                       "/media/quin/data1/docs/me/flatmap/zoom.txt"
+                       (:zoom state)))
+         state)
+    ; u key removes last path (or line) point
     \u (do
          (q/debug (str "path: " (vec (drop-last (:path state)))))
          (merge state {:path (vec (drop-last (:path state)))}))
@@ -167,13 +195,14 @@
     \d (merge state {:drawing (not (:drawing state))})
     ; r key resets (starts drawing from beginning)
     \r (do
-         (.close (:reader state))
+         (q/debug "resetting")
+         ;(.close (:reader state))
          (merge state {:color 0
+                       :nextgeoms (:allgeoms state)
                        :drawing  true
-                       :reader   (.getFeatureReader 
-                                   (:shapefile state))
-                       :frame    0
-                       :geomNum 0}))
+         ;              :reader   (.getFeatureReader 
+         ;                          (:shapefile state))
+                       :frame    0}))
 ))
 
 (defn getBoundingBox [coords]
@@ -224,6 +253,48 @@
                  coords)
           (lazy-seq (geom-seq featureReader))))))
 
+(def minLength 10000)
+
+(defn rrange [a b c]
+    (if (< b a)
+      (map - (repeat 0) (range (- 0 a) (- 0 b) (- 0 c)))
+      (range a b c)))
+
+(defn normalize [v]
+  (let [d (c/getDistance c/origin v)]
+    (if (= 0 d)
+      v
+      (map / v (repeat d)))))
+
+(defn interpolate [p1 p2]
+  (let [d (c/getDistance p1 p2)]
+    (if (>= minLength d)
+      (list p1)
+      (let [ranges (map rrange p1 
+                               p2 
+                               (map * 
+                                    (normalize (map - p2 p1))
+                                    (repeat minLength)))
+            nums   (apply max (map count ranges))
+            equalRanges (map (fn [rng end]
+                               (take nums (concat rng (repeat end))))
+                             ranges
+                             p2)]
+  ; I decided not to include p2 explicitly because
+  ; it will be included at the beginning of the next
+  ; interpolation.
+        (apply map 
+               vector
+               equalRanges)))
+))
+
+(defn interpolateCoords [coords]
+  (concat (mapcat #(apply interpolate %)
+                  (map vector
+                       coords
+                       (rest coords)))
+          (list (last coords))))
+
 (defn filteredGeoms [geoms state]
   ;(q/debug (str "cd: " (first (first geoms))))
   (filter (fn visible [coords]
@@ -236,22 +307,7 @@
                        (trackByTwoTween state 
                                         coord))
                      coords))
-              (filter 
-                (fn closeGeom [coords]
-                  (reduce 
-                    (fn closeCoord [prev coord]
-                      (or prev 
-                          (reduce 
-                            (fn closePathPt [prev point]
-                              (or prev 
-                                  (>= pathWidth
-                                      (c/getDistance point
-                                                     coord))))
-                            false
-                            (:path state))))
-                    false
-                    coords))
-                geoms))))
+              geoms)))
 
 (defn skipGeoms [reader amount]
   (loop [i 0]
@@ -271,20 +327,6 @@
                          (.next reader) 0))))
         geoms)))
 
-(def minLength 10000)
-
-
-(defn interpolate [p1 p2]
-  ;(concat
-  ; I decided not to include p2 explicitly because
-  ; it will be included at the beginning of the next
-  ; interpolation.
-    (apply map 
-           vector
-           (map range p1 p2 (repeat minLength)))
-  ;  (list p2))
-)
-
 (defn drawGeoms [state]
   (dorun (map (fn drawGeom [coords]
                 ;(q/debug "drawGeom")
@@ -294,96 +336,78 @@
                               (apply q/vertex 
                                      (map-to-screen 
                                        state 
-                                       coord)))
-                                      ; [(.x coord) 
-                                      ;  (.y coord)])))
-                            (concat (mapcat #(apply interpolate %)
-                                            (map vector 
-                                                 coords 
-                                                 (rest coords)))
-                                    (list (last coords)))))
+                                       (trackByTwoTween
+                                         state
+                                         coord))))
+                            (interpolateCoords coords)))
                 (q/end-shape))
-              (:geoms state))))
-;              (filter (fn visible [coords]
-;                        (let [bbox (getBoundingBox coords)]
-;                          ;(q/debug (str "b: " bbox))
-;                          (and (bigEnough state bbox)
-;                               (onScreen state bbox))))
-;                      (map (fn warpGeom [coords]
-;                             (map (fn warpCoord [coord]
-;                                    (trackByTwoTween state 
-;                                                     coord))
-;                                  coords))
-;                           (filter 
-;                             (fn closeGeom [coords]
-;                               (reduce 
-;                                 (fn closeCoord [prev coord]
-;                                   (or prev 
-;                                       (reduce 
-;                                         (fn closePathPt [prev point]
-;                                           (or prev 
-;                                               (>= pathWidth
-;                                                   (c/getDistance point
-;                                                                  coord))))
-;                                         false
-;                                         (:path state))))
-;                                 false
-;                                 coords))
-;                             (map #(map (fn coordToVec [coord] 
-;                                          [(.x coord) (.y coord)])
-;                                        %)
-;                                  (:geoms state))))))))
+              (filter #(bigEnough state 
+                                  (getBoundingBox %)) 
+                      (:currgeoms state)))))
+
+(def grouping 100)
 
 (defn update-state [state]
   (merge state 
          {:color (mod (+ (:color state) 0.7) 255)
-          :drawing (let [d (and (.hasNext (:reader state))
-                                (:drawing state))]
-                     (if (and (:drawing state) (not d))
-                         (q/debug "done!"))
-                     d)
+          :drawing true
+          :nextgeoms (if (contains? state :nextgeoms)
+                         (drop grouping (:nextgeoms state))
+                         (:allgeoms state))
+          :currgeoms (take grouping (:nextgeoms state))
           :frame (inc (:frame state))
-          :geomNum startGeom
-          :geoms (take 100 (filteredGeoms (geom-seq (:reader state)) state))
-          ;:geoms (if (and (:drawing state)
-          ;                (.hasNext (:reader state)))
-          ;           (getGeoms (if (< (:geomNum state) startGeom)
-          ;                         (skipGeoms (:reader state) startGeom)
-          ;                         (:reader state)) 
-          ;                     (if (:pathtoggle state)
-          ;                         200
-          ;                         200))
-          ;           [])
          }))
 
 (defn draw-state [state]
   ; draw map on off-screen buffer
-  (q/with-graphics
-    (:mapLayer state)
-    (if (= 1 (:frame state))
-      (q/background 0 0 0 0))
-    (q/with-fill 
-      [(:color state) 255 255]
-      (drawGeoms state)))
-  (q/background 255)
+  (when (< 0 (count (:currgeoms state)))
+    (q/debug (str "f: " (:frame state)))
+    (q/with-graphics
+      (:mapLayer state)
+      (if (= 1 (:frame state))
+        (q/background 0 0 0 0))
+      (q/with-fill 
+        [0 153 0];(:color state) 255 255]
+        (q/with-stroke
+          [0 153 0]
+          (drawGeoms state))))
+    (if (= 0 (count (:nextgeoms state)))
+      (q/debug "done")))
+  (q/background 130 255 255)
   ; draw map on-screen
   (q/image (:mapLayer state) 0 0)
-  ;log frame number
-  (if (:drawing state)
-    (q/debug (str "f: " (:frame state))))
-  ;draw path
-  (if (< 0 (count (:path state)))
-    (let [path (if (:pathtoggle state)
-                   (c/flattenPath (:path state))
-                   (:path state))
-          screenPath (map #(map-to-screen state %) path)]
-      (dorun (reduce (fn [a b] (q/line (first a) 
-                                       (second a) 
-                                       (first b) 
-                                       (second b))
-                               b)
-                     screenPath))
-    )))
+  ;;draw path
+  ;(if (< 0 (count (:path state)))
+  ;  (let [path (if (:pathtoggle state)
+  ;                 (c/flattenPath (:path state))
+  ;                 (:path state))
+  ;        screenPath (map #(map-to-screen state %) path)]
+  ;    (dorun (reduce (fn [a b] (q/line (first a) 
+  ;                                     (second a) 
+  ;                                     (first b) 
+  ;                                     (second b))
+  ;                             b)
+  ;                   screenPath))
+  ;  ))
+  ;draw line
+  (if (< 0 (count (:line state)))
+    (let [line (if (:pathtoggle state)
+                   (map #(trackByTwoTween state %) (:line state))
+                   (:line state))
+          screenLine (map #(map-to-screen state %) line)]
+      (dorun 
+        (map #(apply q/line %) 
+             (map concat 
+                  screenLine 
+                  (rest screenLine))))))
+  ; display text
+  (if (not (:hiddenUI state))
+    (q/with-fill
+      [0]
+      (q/text (:clickfunc state)
+              10
+              20)))
+)
 
 
 
