@@ -25,13 +25,14 @@
     {:color 0
      ;:shapefile shapefile
      ;:reader (.getFeatureReader shapefile)
-     :zoom defaultZoom
+     :zoom (loadData "/media/quin/data1/docs/me/flatmap/zoom.txt");defaultZoom
      :zoomtoggle false
      :pathtoggle false
      :drawing true
      :frame 1
      :allgeoms (loadData "/media/quin/data1/docs/me/flatmap/geoms.txt")
      :currgeoms '()
+     :outlines false
      :path (loadData "/media/quin/data1/docs/me/flatmap/path.txt")
      :line (loadData "/media/quin/data1/docs/me/flatmap/line.txt")
      :hiddenUI false
@@ -135,21 +136,31 @@
          [(q/width) (q/height)])))
 
 (defn mouse-clicked [state event]
-  (if (not (:zoomtoggle state))
-    (let [newZoom (vec 
-                    (rest 
-                      (conj (:zoom state) 
-                            (screen-to-map 
-                              state 
-                              [(:x event) (:y event)]))))]
-      (q/debug (str "newZoom: " newZoom))
-      (merge state {:zoom newZoom}))
-    (let [newPath (conj (:path state)
-                        (screen-to-map 
-                          state 
-                          [(:x event) (:y event)]))]
-      (q/debug (str "newPath: " newPath))
-      (merge state {:path newPath}))))
+  (case (:clickfunc state)
+    "default" state
+    "zoom" (let [newZoom (vec 
+                           (rest 
+                             (conj (:zoom state) 
+                                   (screen-to-map 
+                                     state 
+                                     [(:x event) 
+                                      (:y event)]))))]
+                (q/debug (str "zoom: " newZoom))
+                (merge state {:zoom newZoom}))
+    "path" (let [newPath (conj (:path state)
+                               (screen-to-map 
+                                 state 
+                                 [(:x event) 
+                                  (:y event)]))]
+             (q/debug (str "path: " newPath))
+             (merge state {:path newPath}))
+    "line" (let [newLine (conj (:line state)
+                               (screen-to-map
+                                 state
+                                 [(:x event)
+                                  (:y event)]))]
+             (q/debug (str "line: " newLine))
+             (merge state {:line newLine}))))
 
 (defn saveData [filepath data]
   (spit filepath (with-out-str (pr data))))
@@ -174,6 +185,10 @@
     \L (merge state {:clickfunc (if (= "line" (:clickfunc state))
                                     "default"
                                     "line")})
+    ; Z key toggles click-to-add-line
+    \Z (merge state {:clickfunc (if (= "zoom" (:clickfunc state))
+                                    "default"
+                                    "zoom")})
     ; s key saves zoom/path/line
     \s (do 
          (case (:clickfunc state)
@@ -183,16 +198,25 @@
            "line" (saveData
                     "/media/quin/data1/docs/me/flatmap/line.txt"
                     (:line state))
-           "default" (saveData
+           "zoom" (saveData
                        "/media/quin/data1/docs/me/flatmap/zoom.txt"
                        (:zoom state)))
+           "default" (do)
          state)
     ; u key removes last path (or line) point
-    \u (do
-         (q/debug (str "path: " (vec (drop-last (:path state)))))
-         (merge state {:path (vec (drop-last (:path state)))}))
+    \u (case (:clickfunc state)
+         "path" (let [newPath (vec (drop-last (:path state)))]
+                  (q/debug (str "path: " newPath))
+                  (merge state {:path newPath}))
+         "line" (let [newLine (vec (drop-last (:line state)))]
+                  (q/debug (str "line: " newLine))
+                  (merge state {:line newLine}))
+         "zoom" state
+         "default" state)
     ; d key toggle drawing
     \d (merge state {:drawing (not (:drawing state))})
+    ; h key toggles UI
+    \h (merge state {:hiddenUI (not (:hiddenUI state))})
     ; r key resets (starts drawing from beginning)
     \r (do
          (q/debug "resetting")
@@ -202,7 +226,42 @@
                        :drawing  true
          ;              :reader   (.getFeatureReader 
          ;                          (:shapefile state))
-                       :frame    0}))
+                       :frame    0
+                       :outlines false}))
+    ; f key fits zoom extents to window ratio
+    \f (let [ratio (/ (q/width) (q/height))
+             zoom (:zoom state)
+             zWidth (- (first (second zoom)) (first (first zoom)))
+             zHeight (- (second (second zoom)) (second (first zoom)))
+             newWidth (* zHeight ratio)
+             newHeight (/ zWidth ratio)]
+         (q/debug (str "w: " newWidth " h: " newHeight " r: " ratio))
+         (merge state {:zoom [(first zoom) 
+                              (if (> (Math/abs newWidth) (Math/abs zWidth))
+                                  (do
+                                  (q/debug "fixing width")
+                                  (list (- (first (first zoom)) newWidth)
+                                        (second (second zoom))))
+                                  (do
+                                  (q/debug "fixing height")
+                                  (list (first (second zoom))
+                                        (- (second (first zoom)) newHeight))))]}))
+    ; g key fills geoms with a grid
+    \g (merge state {:nextgeoms (map 
+                                  (fn [i] 
+                                    (let [j (mod i 10) 
+                                          k (Math/floor (/ i 10))
+                                          z (:zoom state)
+                                          w (/ (apply - (map first z)) 10)
+                                          h (/ (apply - (map second z)) 10)
+                                          x (- (first (first z)) (* w j))
+                                          y (- (second (first z)) (* h k))]
+                                      [[x y] 
+                                       [(- x w) y] 
+                                       [(- x w) (- y h)] 
+                                       [x (- y h)]]))
+                                  (range 200))
+                     :outlines true})
 ))
 
 (defn getBoundingBox [coords]
@@ -352,9 +411,9 @@
          {:color (mod (+ (:color state) 0.7) 255)
           :drawing true
           :nextgeoms (if (contains? state :nextgeoms)
-                         (drop grouping (:nextgeoms state))
+                         (drop-last grouping (:nextgeoms state))
                          (:allgeoms state))
-          :currgeoms (take grouping (:nextgeoms state))
+          :currgeoms (take-last grouping (:nextgeoms state))
           :frame (inc (:frame state))
          }))
 
@@ -367,33 +426,53 @@
       (if (= 1 (:frame state))
         (q/background 0 0 0 0))
       (q/with-fill 
-        [0 153 0];(:color state) 255 255]
+        (if (:outlines state)
+          [0 0 0 0]
+          [0 153 0]);(:color state) 255 255]
         (q/with-stroke
-          [0 153 0]
+          (if (:outlines state)
+            [0]
+            [0 153 0])
           (drawGeoms state))))
     (if (= 0 (count (:nextgeoms state)))
       (q/debug "done")))
   (q/background 130 255 255)
   ; draw map on-screen
   (q/image (:mapLayer state) 0 0)
-  ;;draw path
-  ;(if (< 0 (count (:path state)))
-  ;  (let [path (if (:pathtoggle state)
-  ;                 (c/flattenPath (:path state))
-  ;                 (:path state))
-  ;        screenPath (map #(map-to-screen state %) path)]
-  ;    (dorun (reduce (fn [a b] (q/line (first a) 
-  ;                                     (second a) 
-  ;                                     (first b) 
-  ;                                     (second b))
-  ;                             b)
-  ;                   screenPath))
-  ;  ))
+  ;draw path
+  (if (and (= "path" (:clickfunc state)) (< 0 (count (:path state))))
+    ;(let [path (if (:pathtoggle state)
+    ;               (c/extendPath (c/flattenPath (:path state)))
+    ;               (c/extendPath (:path state)))
+    ;      screenPath (map #(map-to-screen state %) path)]
+    ;  (q/with-stroke
+    ;    [0 255 255]
+    ;    (dorun (reduce (fn [a b] (apply q/line 
+    ;                                    (concat a b)) 
+    ;                             b) 
+    ;                   screenPath))))
+    (let [path (if (:pathtoggle state)
+                   (c/flattenPath (:path state))
+                   (:path state))
+          screenPath (map #(map-to-screen state %) path)]
+      (q/with-stroke
+        [0 0 0]
+        (dorun (reduce (fn [a b] (q/line (first a) 
+                                         (second a) 
+                                         (first b) 
+                                         (second b))
+                                 b)
+                       screenPath)))
+    ))
   ;draw line
   (if (< 0 (count (:line state)))
-    (let [line (if (:pathtoggle state)
-                   (map #(trackByTwoTween state %) (:line state))
-                   (:line state))
+    (let [rawLine (if (= 0 (count (:currgeoms state)))
+                    (interpolateCoords (:line state))
+                    (:line state))
+          line (if (:pathtoggle state)
+                   (map #(trackByTwoTween state %) 
+                        rawLine)
+                   rawLine)
           screenLine (map #(map-to-screen state %) line)]
       (dorun 
         (map #(apply q/line %) 
@@ -407,6 +486,14 @@
       (q/text (:clickfunc state)
               10
               20)))
+  ;draw zoom
+  (if (not (:zoomtoggle state))
+    (q/with-fill
+      [0 0 0 0]
+      (apply q/rect 
+             (concat (map-to-screen state (first (:zoom state)))
+                     (map - (map-to-screen state (second (:zoom state)))
+                            (map-to-screen state (first (:zoom state))))))))
 )
 
 

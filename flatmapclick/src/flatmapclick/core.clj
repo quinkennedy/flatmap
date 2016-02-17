@@ -4,7 +4,7 @@
             [flatmapclick.dynamic :as d]))
 (q/defsketch flatmapclick
   :title "You spin my circle right round"
-  :size [800 800]
+  :size [1500 298]
   ; setup function called only once, during sketch initialization.
   :setup d/setup
   ; update-state is called on each iteration before draw-state.
